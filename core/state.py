@@ -4,7 +4,7 @@ Application state management
 import streamlit as st
 import pandas as pd
 from typing import Optional
-from config import DEFAULT_MODE
+from config import DEFAULT_APP_MODE
 
 class AppState:
     """Central state manager for the application"""
@@ -20,7 +20,7 @@ class AppState:
                 "schema": None,
                 
                 # Mode layer
-                "current_mode": DEFAULT_MODE,
+                "current_mode": DEFAULT_APP_MODE,
                 
                 # Conversation layer
                 "display_messages": [],

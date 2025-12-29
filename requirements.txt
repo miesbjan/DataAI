@@ -3,3 +3,4 @@ duckdb>=0.9
 pyodbc>=4.0
 openai>=0.27
 pandas>=2.0
+plotly>=5.0

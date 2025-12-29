@@ -169,7 +169,7 @@ class AppState:
             "df": None,
             "conn": None,
             "schema": None,
-            "current_mode": DEFAULT_MODE,
+            "current_mode": DEFAULT_APP_MODE,
             "display_messages": [],
             "total_cost": 0.0,
             "api_calls": 0,

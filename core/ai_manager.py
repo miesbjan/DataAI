@@ -241,32 +241,51 @@ class AIService:
         
         sample = df.head(2).to_string(max_colwidth=20, index=False)
         
-        return f"""You are a Python code generator for data analysis.
+        return f"""You are a Python code generator for data analysis and visualization.
 
-                DataFrame '{meta['table_name']}':
-                Columns: {columns}
-                Row count: {len(df):,}
+            DataFrame '{meta['table_name']}':
+            Columns: {columns}
+            Row count: {len(df):,}
 
-                Sample data:
-                {sample}
+            Sample data:
+            {sample}
 
-                Available tools:
-                - df: pandas DataFrame with the data
-                - conn: DuckDB connection
-                - pd: pandas
-                - px: plotly.express (for charts)
-                - go: plotly.graph_objects (for advanced charts)
+            Available tools:
+            - df: pandas DataFrame with the data
+            - conn: DuckDB connection
+            - pd: pandas
+            - px: plotly.express (for charts)
+            - go: plotly.graph_objects (for advanced charts)
 
-                Domain context: {meta.get('description', '')}
+            Domain context: {meta.get('description', '')}
 
-                CRITICAL RULES:
-                1. Generate ONLY executable Python code
-                2. For visualizations: assign figure to 'fig' variable
-                3. For calculations: use print() to show results
-                4. NO explanations, NO markdown, NO comments
-                5. Just pure Python code
+            CRITICAL RULES FOR VISUALIZATIONS:
+            1. For Plotly charts: Create figure and assign to variable 'fig'
+            2. NEVER use fig.show() - this will cause errors
+            3. NEVER use plt.show() for matplotlib
+            4. Just assign: fig = px.bar(...) or fig = go.Figure(...)
+            5. The system will display the figure automatically
 
-                Generate the code:"""
+            CRITICAL RULES FOR CODE:
+            1. Generate ONLY executable Python code
+            2. For calculations: use print() to show results
+            3. NO explanations, NO markdown, NO comments
+            4. Just pure Python code
+
+            EXAMPLE (CORRECT):
+            ```python
+            import plotly.express as px
+            fig = px.bar(df.groupby('sport').size().reset_index(name='count'), 
+                        x='sport', y='count', title='Athletes by Sport')
+            ```
+
+            EXAMPLE (WRONG - DO NOT DO THIS):
+            ```python
+            fig = px.bar(...)
+            fig.show()  # ← NEVER use .show()
+            ```
+
+            Generate the code:"""
     
     def _build_error_retry_prompt(
         self,

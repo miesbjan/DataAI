@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import re
 from core.ai_manager import GenerationMetadata
+from ui.chat import render_save_dialog_inline
 
 
 # ========== Input Detection ==========
@@ -74,10 +75,11 @@ def handle_code_mode(
     state,
     ai_service,
     executor,
-    context_manager
+    context_manager,
+    max_attempts: int = 2  # ← Add parameter
 ):
     """
-    Handle SQL/Python code generation and execution.
+    Handle SQL/Python code generation and execution with retry on error.
     
     Args:
         mode: "sql" or "python"
@@ -86,6 +88,7 @@ def handle_code_mode(
         ai_service: AIService instance
         executor: CodeExecutor instance
         context_manager: ContextManager instance
+        max_attempts: Maximum retry attempts (default 2)
     """
     # Add user message to context
     context_manager.add_user_message(user_input, mode)
@@ -94,13 +97,20 @@ def handle_code_mode(
     with st.chat_message("user"):
         st.markdown(user_input)
     
+    # Add to display messages
+    state.display_messages.append({
+        "role": "user",
+        "content": user_input,
+        "mode": mode
+    })
+    
     # Display assistant response
     with st.chat_message("assistant"):
         # Detect if raw code or natural language
         is_raw = is_raw_sql(user_input) if mode == "sql" else is_raw_python(user_input)
         
         if is_raw:
-            # User wrote code directly
+            # User wrote code directly - no retry for direct code
             code = user_input.strip()
             metadata = GenerationMetadata(
                 model="none",
@@ -110,50 +120,192 @@ def handle_code_mode(
                 source="direct"
             )
             st.caption("⚡ Executing direct code")
-        else:
-            # Generate code via AI
-            context = context_manager.get_context_for_ai()
             
+            # Execute once (no retry for user code)
             if mode == "sql":
-                code, metadata = ai_service.generate_sql(user_input, state.df, context)
+                result, error = executor.execute_sql(state.conn, state.df, code)
             else:
-                code, metadata = ai_service.generate_python(user_input, state.df, context)
+                result, error = executor.execute_python(state.conn, state.df, code)
             
-            st.caption(f"🤖 Generated with **{metadata.model}** • Cost: **${metadata.cost:.5f}**")
-        
-        # Display code
-        st.code(code, language=mode)
-        
-        # Execute code
-        if mode == "sql":
-            result, error = executor.execute_sql(state.conn, state.df, code)
-        else:
-            result, error = executor.execute_python(state.conn, state.df, code)
-        
-        # Handle result or error
-        if error:
-            display_error(error, code, mode)
-            context_manager.add_error(code, error, mode)
-        else:
-            # Display result
-            if mode == "sql":
-                display_sql_result(result, code, metadata)
-                context_manager.add_sql_result(code, result)
-            else:
-                display_python_result(result, code, metadata)
-                context_manager.add_python_result(code, result)
-            
-            # Update state costs
-            state.total_cost += metadata.cost
-            state.api_calls += 1
-            if metadata.cost > 0:
-                state.cost_history.append({
-                    "model": metadata.model,
-                    "cost": metadata.cost,
-                    "input_tokens": metadata.input_tokens,
-                    "output_tokens": metadata.output_tokens,
-                    "mode": mode
+            # Handle result
+            if error:
+                display_error(error, code, mode)
+                context_manager.add_error(code, error, mode)
+                state.display_messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {error}",
+                    "mode": mode,
+                    "executed_code": code,
+                    "code_language": mode,
+                    "source": "direct",
+                    "error": error
                 })
+                return  # ← Stop here for user code
+            
+        else:
+            # AI-generated code - try with retry
+            attempt = 1
+            error_context = None
+            
+            while attempt <= max_attempts:
+                # Generate code
+                context = context_manager.get_context_for_ai()
+                
+                if mode == "sql":
+                    code, metadata = ai_service.generate_sql(
+                        user_input, 
+                        state.df, 
+                        context, 
+                        error_context=error_context
+                    )
+                else:
+                    code, metadata = ai_service.generate_python(
+                        user_input, 
+                        state.df, 
+                        context, 
+                        error_context=error_context
+                    )
+                
+                # Show generation info
+                if attempt == 1:
+                    st.caption(f"🤖 Generated with **{metadata.model}** • Cost: **${metadata.cost:.5f}**")
+                else:
+                    st.caption(f"🔄 Retry {attempt}/{max_attempts} with **{metadata.model}** • Cost: **${metadata.cost:.5f}**")
+                
+                # Display code
+                st.code(code, language=mode)
+                
+                # Execute
+                if mode == "sql":
+                    result, error = executor.execute_sql(state.conn, state.df, code)
+                else:
+                    result, error = executor.execute_python(state.conn, state.df, code)
+                
+                # Check result
+                if error:
+                    # Show error
+                    st.error(f"❌ Attempt {attempt} failed: {error}")
+                    
+                    # Prepare for retry
+                    if attempt < max_attempts:
+                        st.info(f"🔄 Attempting to fix and retry...")
+                        error_context = {
+                            "failed_query": code,
+                            "error": error
+                        }
+                        attempt += 1
+                        
+                        # Update costs for retry
+                        state.total_cost += metadata.cost
+                        state.api_calls += 1
+                        if metadata.cost > 0:
+                            state.cost_history.append({
+                                "model": metadata.model,
+                                "cost": metadata.cost,
+                                "input_tokens": metadata.input_tokens,
+                                "output_tokens": metadata.output_tokens,
+                                "mode": mode
+                            })
+                        
+                        continue  # ← Retry!
+                    else:
+                        # Max attempts reached
+                        st.error(f"❌ Failed after {max_attempts} attempts")
+                        display_error(error, code, mode)
+                        context_manager.add_error(code, error, mode)
+                        
+                        state.display_messages.append({
+                            "role": "assistant",
+                            "content": f"Error after {max_attempts} attempts: {error}",
+                            "mode": mode,
+                            "executed_code": code,
+                            "code_language": mode,
+                            "source": metadata.source,
+                            "error": error
+                        })
+                        
+                        # Update costs for final failed attempt
+                        state.total_cost += metadata.cost
+                        state.api_calls += 1
+                        if metadata.cost > 0:
+                            state.cost_history.append({
+                                "model": metadata.model,
+                                "cost": metadata.cost,
+                                "input_tokens": metadata.input_tokens,
+                                "output_tokens": metadata.output_tokens,
+                                "mode": mode
+                            })
+                        
+                        return  # ← Stop after max attempts
+                
+                else:
+                    # Success! Break retry loop
+                    if attempt > 1:
+                        st.success(f"✅ Succeeded on attempt {attempt}!")
+                    break
+        
+        # ===== SUCCESS PATH =====
+        # Display result
+        if mode == "sql":
+            display_sql_result(result, code, metadata)
+            context_manager.add_sql_result(code, result)
+            
+            # Add to display messages
+            state.display_messages.append({
+                "role": "assistant",
+                "content": "SQL query executed",
+                "mode": "sql",
+                "executed_code": code,
+                "code_language": "sql",
+                "dataframe": result,
+                "model": metadata.model,
+                "cost": metadata.cost,
+                "source": metadata.source
+            })
+            
+        else:
+            display_python_result(result, code, metadata)
+            context_manager.add_python_result(code, result)
+            
+            # Add to display messages
+            state.display_messages.append({
+                "role": "assistant",
+                "content": "Python code executed",
+                "mode": "python",
+                "executed_code": code,
+                "code_language": "python",
+                "python_output": result.get('output'),
+                "chart": result.get('fig'),
+                "namespace": result.get('namespace'),
+                "model": metadata.model,
+                "cost": metadata.cost,
+                "source": metadata.source
+            })
+        
+        # ===== SAVE BUTTON =====
+        st.divider()
+        
+        # Save button
+        if st.button("💾 Save Query", key=f"save_current_{hash(code)}"):
+            st.session_state.show_save_dialog_current = True
+            st.rerun()
+        
+        # Show save dialog if triggered
+        if st.session_state.get("show_save_dialog_current"):
+            from ui.chat import render_save_dialog_inline
+            render_save_dialog_inline(code, mode, state)
+        
+        # Update state costs
+        state.total_cost += metadata.cost
+        state.api_calls += 1
+        if metadata.cost > 0:
+            state.cost_history.append({
+                "model": metadata.model,
+                "cost": metadata.cost,
+                "input_tokens": metadata.input_tokens,
+                "output_tokens": metadata.output_tokens,
+                "mode": mode
+            })
 
 
 # ========== Natural Language Handler ==========

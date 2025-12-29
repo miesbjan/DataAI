@@ -1,3 +1,26 @@
 {
-  "queries": []
+  "queries": [
+    {
+      "id": "d70df454-cecc-4308-a34c-8c8f32a2d38e",
+      "name": "Vitezove",
+      "description": "",
+      "mode": "sql",
+      "code": "SELECT *\nFROM df\nWHERE rank = 1;",
+      "tags": [],
+      "created_at": "2025-12-29T11:35:11.274932",
+      "last_used": "2025-12-29T13:56:32.663489",
+      "use_count": 1
+    },
+    {
+      "id": "8a2bf0aa-0c47-47dd-9a3f-5d1314b997f9",
+      "name": "Age distribution",
+      "description": "",
+      "mode": "python",
+      "code": "df = df.copy()\ndf['date'] = pd.to_datetime(df['date'], errors='coerce')\ndf['birth_year'] = pd.to_numeric(df['birth_year'], errors='coerce')\ndf['age'] = df['date'].dt.year - df['birth_year']\nprint(\"Total rows:\", len(df))\nvalid_ages = df['age'].dropna()\nprint(\"Valid age records:\", valid_ages.count())\nprint(\"Mean age:\", valid_ages.mean())\nprint(\"Median age:\", valid_ages.median())\nprint(\"Std dev age:\", valid_ages.std())\nprint(\"Min age:\", valid_ages.min())\nprint(\"Max age:\", valid_ages.max())\nprint(\"Age quartiles:\")\nprint(valid_ages.quantile([0.25, 0.5, 0.75]))\nfiltered = df[(df['age'] >= 10) & (df['age'] <= 90) & (~df['age'].isna())]\nprint(\"Filtered records (10 <= age <= 90):\", len(filtered))\nprint(\"Filtered mean age:\", filtered['age'].mean())\nprint(\"Filtered median age:\", filtered['age'].median())\nfig = px.histogram(filtered, x='age', nbins=40, marginal='box', title='Age distribution of competitors', labels={'age': 'Age (years)'})\nfig.show()\ntop_sports = filtered['sport'].value_counts().nlargest(6).index.tolist()\ndf_top_sports = filtered[filtered['sport'].isin(top_sports)]\nfig = px.violin(df_top_sports, x='sport', y='age', box=True, points='all', title='Age distribution by sport (top sports)', labels={'age': 'Age (years)', 'sport': 'Sport'})\nfig.update_layout(xaxis={'categoryorder':'total descending'})\nfig.show()\nages_sorted = filtered['age'].dropna().sort_values().reset_index(drop=True)\necdf_y = (ages_sorted.index + 1) / len(ages_sorted)\nfig = go.Figure(go.Scatter(x=ages_sorted, y=ecdf_y, mode='lines', name='ECDF'))\nfig.update_layout(title='ECDF of competitor ages', xaxis_title='Age', yaxis_title='Proportion')\nfig.show()",
+      "tags": [],
+      "created_at": "2025-12-29T14:16:01.253296",
+      "last_used": "2025-12-29T14:16:12.671873",
+      "use_count": 1
+    }
+  ]
 }

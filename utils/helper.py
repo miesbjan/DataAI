@@ -431,3 +431,82 @@ def display_error(error: str, code: str, mode: str):
     """
     st.error(f"❌ Execution Error")
     st.code(error, language="text")
+
+def handle_code_rerun(state, executor, context_manager):
+    """
+    Handle re-execution of edited code from chat history.
+    
+    Args:
+        state: AppState instance
+        executor: CodeExecutor instance
+        context_manager: ContextManager instance
+    """
+    # Check for any rerun triggers
+    for key in list(st.session_state.keys()):
+        if key.startswith("rerun_code_"):
+            idx = int(key.split("_")[-1])
+            edited_code = st.session_state[key]
+            
+            # Get original message
+            if idx < len(state.display_messages):
+                original_msg = state.display_messages[idx]
+                mode = original_msg.get("mode")
+                
+                # Execute edited code
+                with st.chat_message("assistant"):
+                    st.caption("⚡ Executing edited code")
+                    st.code(edited_code, language=mode)
+                    
+                    if mode == "sql":
+                        result, error = executor.execute_sql(state.conn, state.df, edited_code)
+                        
+                        if error:
+                            st.error(f"❌ Error: {error}")
+                            context_manager.add_error(edited_code, error, mode)
+                        else:
+                            st.dataframe(result, use_container_width=True)
+                            st.caption(f"✅ {len(result):,} rows")
+                            context_manager.add_sql_result(edited_code, result)
+                            
+                            # Add new message with edited result
+                            state.display_messages.append({
+                                "role": "assistant",
+                                "content": "Re-executed edited SQL",
+                                "mode": "sql",
+                                "executed_code": edited_code,
+                                "code_language": "sql",
+                                "dataframe": result,
+                                "source": "edited"
+                            })
+                    
+                    elif mode == "python":
+                        result, error = executor.execute_python(state.conn, state.df, edited_code)
+                        
+                        if error:
+                            st.error(f"❌ Error: {error}")
+                            context_manager.add_error(edited_code, error, mode)
+                        else:
+                            if result.get('output'):
+                                with st.expander("📄 Console Output", expanded=True):
+                                    st.text(result['output'])
+                            
+                            if result.get('fig'):
+                                st.plotly_chart(result['fig'], use_container_width=True)
+                            
+                            context_manager.add_python_result(edited_code, result)
+                            
+                            # Add new message with edited result
+                            state.display_messages.append({
+                                "role": "assistant",
+                                "content": "Re-executed edited Python",
+                                "mode": "python",
+                                "executed_code": edited_code,
+                                "code_language": "python",
+                                "python_output": result.get('output'),
+                                "chart": result.get('fig'),
+                                "source": "edited"
+                            })
+            
+            # Clear trigger
+            del st.session_state[key]
+            st.rerun()

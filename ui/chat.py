@@ -55,7 +55,7 @@ def render_assistant_message(message: dict, idx: int, state):
 
 def render_code_result(message: dict, idx: int, mode: str, state):
     """
-    Render code execution result.
+    Render code execution result with editable code.
     
     Args:
         message: Message dict
@@ -63,6 +63,8 @@ def render_code_result(message: dict, idx: int, mode: str, state):
         mode: "sql" or "python"
         state: AppState instance
     """
+    from core.code_executor import CodeExecutor
+    
     # Metadata (model, cost)
     if message.get("source") == "generated":
         col1, col2 = st.columns([3, 1])
@@ -73,11 +75,69 @@ def render_code_result(message: dict, idx: int, mode: str, state):
                 st.caption(f"💰 ${message['cost']:.5f}")
     elif message.get("source") == "direct":
         st.caption("⚡ Direct execution")
+    elif message.get("source") == "edited":
+        st.caption("✏️ Edited and re-executed")
     
-    # Code (collapsible)
+    # Editable code
     if message.get("executed_code"):
-        with st.expander(f"📝 {mode.upper()} Code", expanded=False):
-            st.code(message["executed_code"], language=message.get("code_language", mode))
+        with st.expander(f"📝 {mode.upper()} Code (Click to edit)", expanded=True):
+            # Editable text area
+            edited_code = st.text_area(
+                "Edit code",
+                value=message["executed_code"],
+                height=200,
+                key=f"code_edit_{idx}",
+                label_visibility="collapsed"
+            )
+            
+            # Re-run button
+            if st.button(f"▶️ Run Edited Code", key=f"rerun_{idx}"):
+                executor = CodeExecutor()
+                
+                # Execute edited code
+                if mode == "sql":
+                    result, error = executor.execute_sql(state.conn, state.df, edited_code)
+                    
+                    if error:
+                        st.error(f"❌ Error: {error}")
+                        # Update message with error
+                        state.display_messages[idx]["executed_code"] = edited_code
+                        state.display_messages[idx]["error"] = error
+                        state.display_messages[idx]["source"] = "edited"
+                    else:
+                        # Update message with new results
+                        state.display_messages[idx]["executed_code"] = edited_code
+                        state.display_messages[idx]["dataframe"] = result
+                        state.display_messages[idx]["source"] = "edited"
+                        state.display_messages[idx].pop("error", None)  # Remove error if existed
+                        st.success(f"✅ Updated! {len(result):,} rows")
+                
+                elif mode == "python":
+                    result, error = executor.execute_python(state.conn, state.df, edited_code)
+                    
+                    if error:
+                        st.error(f"❌ Error: {error}")
+                        # Update message with error
+                        state.display_messages[idx]["executed_code"] = edited_code
+                        state.display_messages[idx]["error"] = error
+                        state.display_messages[idx]["source"] = "edited"
+                    else:
+                        # Update message with new results
+                        state.display_messages[idx]["executed_code"] = edited_code
+                        state.display_messages[idx]["python_output"] = result.get('output')
+                        state.display_messages[idx]["chart"] = result.get('fig')
+                        state.display_messages[idx]["namespace"] = result.get('namespace')
+                        state.display_messages[idx]["source"] = "edited"
+                        state.display_messages[idx].pop("error", None)  # Remove error if existed
+                        st.success("✅ Updated!")
+                
+                # Rerun to show updated results
+                st.rerun()
+    
+    # Show error if exists
+    if message.get("error"):
+        st.error(f"❌ Error: {message['error']}")
+        return  # Don't show results if there's an error
     
     # Results
     if mode == "sql":

@@ -9,7 +9,7 @@ from core.code_executor import CodeExecutor
 from core.context_manager import ContextManager
 from core.query_library import QueryLibrary
 from ui import render_sidebar, render_chat_history, render_compact_mode_selector
-from utils.helper import handle_code_mode, handle_natural_language
+from utils.helper import handle_code_mode, handle_code_rerun, handle_natural_language
 from config import DEFAULT_APP_MODE, get_active_metadata
 
 
@@ -38,6 +38,8 @@ def main():
             state.df = data_source.load()
             state.conn = init_duckdb()
             state.schema = data_source.get_schema(state.df)
+
+    handle_code_rerun(state, executor, context_manager)
     
     # Render sidebar
     render_sidebar(state, data_source, query_library)

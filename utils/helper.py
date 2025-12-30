@@ -82,37 +82,17 @@ def handle_code_mode(
         is_raw = is_raw_sql(user_input) if mode == "sql" else is_raw_python(user_input)
         
         if is_raw:
-            # User wrote code directly - no retry for direct code
-            code = user_input.strip()
-            metadata = GenerationMetadata(
-                model="none",
-                input_tokens=0,
-                output_tokens=0,
-                cost=0.0,
-                source="direct"
-            )
-            st.caption("⚡ Executing direct code")
-            
-            # Execute once (no retry for user code)
-            if mode == "sql":
-                result, error = executor.execute_sql(state.conn, state.df, code)
-            else:
-                result, error = executor.execute_python(state.conn, state.df, code)
-            
-            # Handle result
-            if error:
-                st.error(error)
-                context_manager.add_error(code, error, mode)
-                state.display_messages.append({
-                    "role": "assistant",
-                    "content": f"Error: {error}",
-                    "mode": mode,
-                    "executed_code": code,
-                    "code_language": mode,
-                    "source": "direct",
-                    "error": error
-                })
-                return  # ← Stop here for user code
+              # User wrote code directly - execute using shared handler
+              handle_direct_code_execution(
+                  code=user_input.strip(),
+                  mode=mode,
+                  state=state,
+                  executor=executor,
+                  context_manager=context_manager,
+                  caption="⚡ Executing direct code",
+                  source="direct"
+              )
+              return
             
         else:
             # AI-generated code - try with retry
@@ -287,6 +267,9 @@ def handle_code_mode(
                 "mode": mode
             })
 
+        if not st.session_state.get("show_save_dialog_current"):
+            st.rerun()
+
 
 # ========== Natural Language Handler ==========
 
@@ -343,6 +326,8 @@ def handle_natural_language(
             "mode": "natural"
         })
 
+        st.rerun()
+
 
 def handle_code_rerun(state, executor, context_manager):
     """
@@ -365,60 +350,126 @@ def handle_code_rerun(state, executor, context_manager):
                 mode = original_msg.get("mode")
                 
                 # Execute edited code
-                with st.chat_message("assistant"):
-                    st.caption("⚡ Executing edited code")
-                    st.code(edited_code, language=mode)
-                    
-                    if mode == "sql":
-                        result, error = executor.execute_sql(state.conn, state.df, edited_code)
-                        
-                        if error:
-                            st.error(f"❌ Error: {error}")
-                            context_manager.add_error(edited_code, error, mode)
-                        else:
-                            st.dataframe(result, use_container_width=True)
-                            st.caption(f"✅ {len(result):,} rows")
-                            context_manager.add_sql_result(edited_code, result)
-                            
-                            # Add new message with edited result
-                            state.display_messages.append({
-                                "role": "assistant",
-                                "content": "Re-executed edited SQL",
-                                "mode": "sql",
-                                "executed_code": edited_code,
-                                "code_language": "sql",
-                                "dataframe": result,
-                                "source": "edited"
-                            })
-                    
-                    elif mode == "python":
-                        result, error = executor.execute_python(state.conn, state.df, edited_code)
-                        
-                        if error:
-                            st.error(f"❌ Error: {error}")
-                            context_manager.add_error(edited_code, error, mode)
-                        else:
-                            if result.get('output'):
-                                with st.expander("📄 Console Output", expanded=True):
-                                    st.text(result['output'])
-                            
-                            if result.get('fig'):
-                                st.plotly_chart(result['fig'], use_container_width=True)
-                            
-                            context_manager.add_python_result(edited_code, result)
-                            
-                            # Add new message with edited result
-                            state.display_messages.append({
-                                "role": "assistant",
-                                "content": "Re-executed edited Python",
-                                "mode": "python",
-                                "executed_code": edited_code,
-                                "code_language": "python",
-                                "python_output": result.get('output'),
-                                "chart": result.get('fig'),
-                                "source": "edited"
-                            })
+                handle_direct_code_execution(
+                    code=edited_code,
+                    mode=mode,
+                    state=state,
+                    executor=executor,
+                    context_manager=context_manager,
+                    caption="⚡ Re-executing edited code",
+                    source="edited"
+                )
             
             # Clear trigger
             del st.session_state[key]
             st.rerun()
+
+# ========== Direct Code Execution ==========
+
+def handle_direct_code_execution(
+    code: str,
+    mode: str,
+    state,
+    executor,
+    context_manager,
+    caption: str = "⚡ Executing code",
+    source: str = "direct"
+):
+    """
+    Execute code directly without AI generation (for saved queries, edits, etc.)
+    Reusable handler that eliminates duplication across the app.
+
+    Args:
+        code: Code to execute
+        mode: "sql" or "python"
+        state: AppState instance
+        executor: CodeExecutor instance
+        context_manager: ContextManager instance
+        caption: Display caption
+        source: Source label ("direct", "edited", "saved")
+
+    Returns:
+        tuple: (result, error) where error is None on success
+    """
+    with st.chat_message("assistant"):
+        st.caption(caption)
+        st.code(code, language=mode)
+
+        # Execute
+        if mode == "sql":
+            result, error = executor.execute_sql(state.conn, state.df, code)
+
+            if error:
+                st.error(f"❌ Error: {error}")
+                context_manager.add_error(code, error, mode)
+
+                # Add error to display messages
+                state.display_messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {error}",
+                    "mode": "sql",
+                    "executed_code": code,
+                    "code_language": "sql",
+                    "source": source,
+                    "error": error
+                })
+                return None, error
+            else:
+                # Display using shared render function
+                message_dict = {"dataframe": result}
+                render_sql_result(message_dict)
+                context_manager.add_sql_result(code, result)
+
+                # Add to display messages
+                state.display_messages.append({
+                    "role": "assistant",
+                    "content": caption,
+                    "mode": "sql",
+                    "executed_code": code,
+                    "code_language": "sql",
+                    "dataframe": result,
+                    "source": source
+                })
+                return result, None
+
+        else:  # python
+            result, error = executor.execute_python(state.conn, state.df, code)
+
+            if error:
+                st.error(f"❌ Error: {error}")
+                context_manager.add_error(code, error, mode)
+
+                # Add error to display messages
+                state.display_messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {error}",
+                    "mode": "python",
+                    "executed_code": code,
+                    "code_language": "python",
+                    "source": source,
+                    "error": error
+                })
+                return None, error
+            else:
+                # Display using shared render function
+                message_dict = {
+                    "python_output": result.get('output'),
+                    "chart": result.get('fig'),
+                    "namespace": result.get('namespace')
+                }
+                render_python_result(message_dict)
+                context_manager.add_python_result(code, result)
+
+                # Add to display messages
+                state.display_messages.append({
+                    "role": "assistant",
+                    "content": caption,
+                    "mode": "python",
+                    "executed_code": code,
+                    "code_language": "python",
+                    "python_output": result.get('output'),
+                    "chart": result.get('fig'),
+                    "namespace": result.get('namespace'),
+                    "source": source
+                })
+                return result, None

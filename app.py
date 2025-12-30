@@ -60,7 +60,7 @@ def main():
 def handle_loaded_query(state, context_manager, executor, query_library):
     """
     Handle query loaded from query library.
-    
+
     Args:
         state: AppState instance
         context_manager: ContextManager instance
@@ -69,80 +69,31 @@ def handle_loaded_query(state, context_manager, executor, query_library):
     """
     if st.session_state.get('load_query_id'):
         query = query_library.load(st.session_state.load_query_id)
-        
+
         if query:
             # Set mode
             state.set_mode(query['mode'])
-            
-            # Execute the query
+
+            # Display user message
             with st.chat_message("user"):
                 st.markdown(f"*Loading saved query: {query['name']}*")
-            
-            # Add to context and execute
+
+            # Add to context
             context_manager.add_user_message(f"Loaded: {query['name']}", query['mode'])
-            
-            with st.chat_message("assistant"):
-                st.caption("⚡ Executing saved query")
-                st.code(query['code'], language=query['mode'])
-                
-                # Execute
-                if query['mode'] == "sql":
-                    result, error = executor.execute_sql(state.conn, state.df, query['code'])
-                    
-                    if error:
-                        st.error(f"❌ Error: {error}")
-                        context_manager.add_error(query['code'], error, query['mode'])
-                    else:
-                        st.dataframe(result, use_container_width=True)
-                        st.caption(f"✅ {len(result):,} rows")
-                        context_manager.add_sql_result(query['code'], result)
-                        
-                        # Add to display messages
-                        state.display_messages.append({
-                            "role": "assistant",
-                            "content": f"Loaded query: {query['name']}",
-                            "mode": query['mode'],
-                            "executed_code": query['code'],
-                            "code_language": "sql",
-                            "dataframe": result,
-                            "source": "direct"
-                        })
-                
-                elif query['mode'] == "python":
-                    result, error = executor.execute_python(state.conn, state.df, query['code'])
-                    
-                    if error:
-                        st.error(f"❌ Error: {error}")
-                        context_manager.add_error(query['code'], error, query['mode'])
-                    else:
-                        # Display results
-                        if result.get('output'):
-                            with st.expander("📄 Console Output", expanded=True):
-                                st.text(result['output'])
-                        
-                        if result.get('fig'):
-                            st.plotly_chart(result['fig'], use_container_width=True)
-                        
-                        for var_name, var_value in result.get('namespace', {}).items():
-                            import pandas as pd
-                            if isinstance(var_value, pd.DataFrame):
-                                st.dataframe(var_value, use_container_width=True)
-                        
-                        context_manager.add_python_result(query['code'], result)
-                        
-                        # Add to display messages
-                        state.display_messages.append({
-                            "role": "assistant",
-                            "content": f"Loaded query: {query['name']}",
-                            "mode": query['mode'],
-                            "executed_code": query['code'],
-                            "code_language": "python",
-                            "python_output": result.get('output'),
-                            "chart": result.get('fig'),
-                            "source": "direct"
-                        })
-        
-        # Clear the trigger
+
+            # Execute using shared handler
+            from utils.helper import handle_direct_code_execution
+            handle_direct_code_execution(
+                code=query['code'],
+                mode=query['mode'],
+                state=state,
+                executor=executor,
+                context_manager=context_manager,
+                caption=f"⚡ Executing saved query: {query['name']}",
+                source="saved"
+            )
+
+        # Clear trigger
         st.session_state.load_query_id = None
 
 

@@ -5,6 +5,7 @@ Contains input detection, handlers, and display functions
 import streamlit as st
 import pandas as pd
 from core.ai_manager import GenerationMetadata
+from ui.chat import render_sql_result, render_python_result
 
 
 # ========== Input Type Detection ==========
@@ -218,7 +219,10 @@ def handle_code_mode(
         # ===== SUCCESS PATH =====
         # Display result
         if mode == "sql":
-            display_sql_result(result, code, metadata)
+            message_dict = {
+                "dataframe": result
+            }
+            render_sql_result(message_dict)
             context_manager.add_sql_result(code, result)
             
             # Add to display messages
@@ -235,7 +239,12 @@ def handle_code_mode(
             })
             
         else:
-            display_python_result(result, code, metadata)
+            message_dict = {
+                "python_output": result.get('output'),
+                "chart": result.get('fig'),
+                "namespace": result.get('namespace')
+            }
+            render_python_result(message_dict)
             context_manager.add_python_result(code, result)
             
             # Add to display messages
@@ -334,62 +343,6 @@ def handle_natural_language(
             "mode": "natural"
         })
 
-
-# ========== Display Functions ==========
-
-def display_sql_result(result_df: pd.DataFrame, code: str, metadata: GenerationMetadata):
-    """
-    Display SQL query results.
-    
-    Args:
-        result_df: Result DataFrame
-        code: SQL code that was executed
-        metadata: Generation metadata
-    """
-    # Display dataframe
-    st.dataframe(result_df, use_container_width=True)
-    
-    # Display summary
-    row_count = len(result_df)
-    if row_count == 1:
-        st.success("✅ Found 1 row")
-    else:
-        st.success(f"✅ Found {row_count:,} rows")
-
-
-def display_python_result(result: dict, code: str, metadata: GenerationMetadata):
-    """
-    Display Python execution results.
-    
-    Args:
-        result: Result dict with 'output', 'fig', 'namespace'
-        code: Python code that was executed
-        metadata: Generation metadata
-    """
-    has_output = False
-    
-    # Display console output
-    if result.get('output'):
-        has_output = True
-        with st.expander("📄 Console Output", expanded=True):
-            st.text(result['output'])
-    
-    # Display figure
-    if result.get('fig'):
-        has_output = True
-        st.plotly_chart(result['fig'], use_container_width=True)
-    
-    # Display created DataFrames
-    for var_name, var_value in result.get('namespace', {}).items():
-        if isinstance(var_value, pd.DataFrame):
-            has_output = True
-            st.subheader(f"DataFrame: `{var_name}`")
-            st.dataframe(var_value, use_container_width=True)
-    
-    # If no output, show success message
-    if not has_output:
-        st.success("✅ Code executed successfully (no output)")
-        
 
 def handle_code_rerun(state, executor, context_manager):
     """

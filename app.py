@@ -130,16 +130,10 @@ def render_input_area(state, ai_service, executor, context_manager):
     # Handle input
     if user_input:
         if state.current_mode == "natural":
-            # Get system prompt
+
+            from core.prompts import build_natural_language_prompt
             meta = get_active_metadata()
-            system_prompt = f"""You are a helpful assistant for analyzing {meta['description']}.
-
-                    Key information about the data:
-                    {meta.get('key_columns', '')}
-
-                    {meta.get('notes', '')}
-
-                    Be concise and helpful."""
+            system_prompt = build_natural_language_prompt(meta)
             
             handle_natural_language(
                 user_input,

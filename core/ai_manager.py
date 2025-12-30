@@ -20,6 +20,7 @@ from config import (
     MODEL_PRICING,
     get_active_metadata
 )
+from core.prompts import build_error_retry_prompt, build_sql_prompt, build_python_prompt
 
 
 @dataclass
@@ -64,16 +65,18 @@ class AIService:
         model = self._select_model(user_query)
         
         # Build prompt
+        meta = get_active_metadata()
         if error_context:
-            system_prompt = self._build_error_retry_prompt(
+            system_prompt = build_error_retry_prompt(
                 df,
                 user_query,
                 error_context['failed_query'],
                 error_context['error'],
-                mode="sql"
-            )
+                mode="sql",
+                metadata=meta
+        )
         else:
-            system_prompt = self._build_sql_prompt(df)
+            system_prompt = build_sql_prompt(df, meta)
         
         # Build messages
         messages = [{"role": "system", "content": system_prompt}]
@@ -122,16 +125,18 @@ class AIService:
         model = self._select_model(user_query)
         
         # Build prompt
+        meta = get_active_metadata()
         if error_context:
-            system_prompt = self._build_error_retry_prompt(
+            system_prompt = build_error_retry_prompt(
                 df,
                 user_query,
                 error_context['failed_query'],
                 error_context['error'],
-                mode="python"
+                mode="python",
+                metadata=meta
             )
         else:
-            system_prompt = self._build_python_prompt(df)
+            system_prompt = build_python_prompt(df, meta)
         
         # Build messages
         messages = [{"role": "system", "content": system_prompt}]
@@ -188,133 +193,13 @@ class AIService:
         # For streaming, we estimate cost (will track actual later)
         metadata = GenerationMetadata(
             model=model,
-            input_tokens=0,  # Will be updated later
+            input_tokens=0,
             output_tokens=0,
             cost=0.0,
             source="generated"
         )
         
         return response_stream, metadata
-    
-    # ========== Prompt Builders ==========
-    
-    def _build_sql_prompt(self, df: pd.DataFrame) -> str:
-        """Build system prompt for SQL generation"""
-        meta = get_active_metadata()
-        
-        # Get schema info (truncated to save tokens)
-        columns = ", ".join(df.columns[:15])
-        if len(df.columns) > 15:
-            columns += f", ... ({len(df.columns) - 15} more)"
-        
-        # Get sample data (compact)
-        sample = df.head(2).to_string(max_colwidth=20, index=False)
-        
-        return f"""You are a SQL query generator for DuckDB. Generate ONLY valid SQL queries.
-
-                DataFrame '{meta['table_name']}':
-                Columns: {columns}
-                Row count: {len(df):,}
-
-                Sample data (first 2 rows):
-                {sample}
-
-                Domain rules:
-                {meta.get('domain_rules', '')}
-
-                CRITICAL RULES:
-                - Return ONLY a valid SQL query
-                - Query from: df
-                - Use DuckDB SQL syntax
-                - NO explanations, NO comments, NO markdown
-                - Just the SQL query itself
-
-                Generate the query:"""
-    
-    def _build_python_prompt(self, df: pd.DataFrame) -> str:
-        """Build system prompt for Python generation"""
-        meta = get_active_metadata()
-        
-        columns = ", ".join(df.columns[:15])
-        if len(df.columns) > 15:
-            columns += f", ... ({len(df.columns) - 15} more)"
-        
-        sample = df.head(2).to_string(max_colwidth=20, index=False)
-        
-        return f"""You are a Python code generator for data analysis and visualization.
-
-            DataFrame '{meta['table_name']}':
-            Columns: {columns}
-            Row count: {len(df):,}
-
-            Sample data:
-            {sample}
-
-            Available tools:
-            - df: pandas DataFrame with the data
-            - conn: DuckDB connection
-            - pd: pandas
-            - px: plotly.express (for charts)
-            - go: plotly.graph_objects (for advanced charts)
-
-            Domain context: {meta.get('description', '')}
-
-            CRITICAL RULES FOR VISUALIZATIONS:
-            1. For Plotly charts: Create figure and assign to variable 'fig'
-            2. NEVER use fig.show() - this will cause errors
-            3. NEVER use plt.show() for matplotlib
-            4. Just assign: fig = px.bar(...) or fig = go.Figure(...)
-            5. The system will display the figure automatically
-
-            CRITICAL RULES FOR CODE:
-            1. Generate ONLY executable Python code
-            2. For calculations: use print() to show results
-            3. NO explanations, NO markdown, NO comments
-            4. Just pure Python code
-
-            EXAMPLE (CORRECT):
-            ```python
-            import plotly.express as px
-            fig = px.bar(df.groupby('sport').size().reset_index(name='count'), 
-                        x='sport', y='count', title='Athletes by Sport')
-            ```
-
-            EXAMPLE (WRONG - DO NOT DO THIS):
-            ```python
-            fig = px.bar(...)
-            fig.show()  # ← NEVER use .show()
-            ```
-
-            Generate the code:"""
-    
-    def _build_error_retry_prompt(
-        self,
-        df: pd.DataFrame,
-        user_query: str,
-        failed_query: str,
-        error: str,
-        mode: str
-    ) -> str:
-        """Build retry prompt when code failed"""
-        lang = "SQL" if mode == "sql" else "Python"
-        
-        columns = ", ".join(df.columns[:10])
-        
-        return f"""You are a {lang} code generator. Your previous code failed with an error.
-
-                DataFrame columns: {columns}
-
-                User's original question: {user_query}
-
-                Your previous code:
-                {failed_query}
-
-                Error message:
-                {error}
-
-                Generate CORRECTED {lang} code that fixes this error.
-                Return ONLY the corrected code, no explanations.
-                """
     
     # ========== Model Selection ==========
     

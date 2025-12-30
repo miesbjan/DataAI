@@ -3,9 +3,6 @@ Helper functions for app.py
 Contains input detection, handlers, and display functions
 """
 import streamlit as st
-import pandas as pd
-from core.ai_manager import GenerationMetadata
-from ui.chat import render_sql_result, render_python_result
 
 
 # ========== Input Type Detection ==========
@@ -50,6 +47,7 @@ def handle_code_mode(
     context_manager,
     max_attempts: int = 2
 ):
+    from ui.chat import render_sql_result, render_python_result
     """
     Handle SQL/Python code generation and execution with retry on error.
     
@@ -391,6 +389,7 @@ def handle_direct_code_execution(
     Returns:
         tuple: (result, error) where error is None on success
     """
+    from ui.chat import render_sql_result, render_python_result
     with st.chat_message("assistant"):
         st.caption(caption)
         st.code(code, language=mode)

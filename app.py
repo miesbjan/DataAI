@@ -48,7 +48,7 @@ def main():
     st.title("💬 Data Analysis Chatbot")
     
     # Handle loaded query from sidebar
-    handle_loaded_query(state, context_manager, ai_service, executor, query_library)
+    handle_loaded_query(state, context_manager, executor, query_library)
     
     # Render chat history
     render_chat_history(state)
@@ -57,14 +57,13 @@ def main():
     render_input_area(state, ai_service, executor, context_manager)
 
 
-def handle_loaded_query(state, context_manager, ai_service, executor, query_library):
+def handle_loaded_query(state, context_manager, executor, query_library):
     """
     Handle query loaded from query library.
     
     Args:
         state: AppState instance
         context_manager: ContextManager instance
-        ai_service: AIService instance
         executor: CodeExecutor instance
         query_library: QueryLibrary instance
     """
@@ -184,12 +183,12 @@ def render_input_area(state, ai_service, executor, context_manager):
             meta = get_active_metadata()
             system_prompt = f"""You are a helpful assistant for analyzing {meta['description']}.
 
-Key information about the data:
-{meta.get('key_columns', '')}
+                    Key information about the data:
+                    {meta.get('key_columns', '')}
 
-{meta.get('notes', '')}
+                    {meta.get('notes', '')}
 
-Be concise and helpful."""
+                    Be concise and helpful."""
             
             handle_natural_language(
                 user_input,

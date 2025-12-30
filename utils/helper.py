@@ -4,67 +4,38 @@ Contains input detection, handlers, and display functions
 """
 import streamlit as st
 import pandas as pd
-import re
 from core.ai_manager import GenerationMetadata
-from ui.chat import render_save_dialog_inline
 
 
-# ========== Input Detection ==========
+# ========== Input Type Detection ==========
 
 def is_raw_sql(text: str) -> bool:
     """
     Detect if input is raw SQL code rather than natural language.
-    
-    Args:
-        text: User input text
-    
-    Returns:
-        bool: True if text appears to be SQL code
     """
     text_stripped = text.strip().upper()
-    
-    # Must start with SELECT/WITH and contain FROM (basic SQL structure)
-    if text_stripped.startswith('SELECT') and ' FROM ' in text_stripped:
-        return True
-    
-    if text_stripped.startswith('WITH') and ' AS ' in text_stripped:
-        return True
-    
-    # Other less ambiguous SQL commands
-    unambiguous_keywords = ['CREATE ', 'ALTER ', 'DROP ', 'INSERT ', 'UPDATE ', 'DELETE ']
-    if any(text_stripped.startswith(keyword) for keyword in unambiguous_keywords):
-        return True
-    
-    return False
 
+    return text_stripped.startswith('SELECT')
 
 def is_raw_python(text: str) -> bool:
     """
     Detect if input is raw Python code rather than natural language.
-    
-    Args:
-        text: User input text
-    
-    Returns:
-        bool: True if text appears to be Python code
+    Optimized for data analysis use cases.
     """
-    text_stripped = text.strip()
-    
-    # Check for Python indicators
-    python_indicators = [
-        text_stripped.startswith('import '),
-        text_stripped.startswith('from '),
-        text_stripped.startswith('def '),
-        text_stripped.startswith('class '),
-        'pd.' in text_stripped,
-        'px.' in text_stripped,
-        'df.' in text_stripped,
-        'df[' in text_stripped,
-        '.plot(' in text_stripped,
-        '.groupby(' in text_stripped
-    ]
-    
-    return any(python_indicators)
+    if not text:
+        return False
+
+    t = text.strip()
+
+    # Common Python statement starts
+    python_starts = (
+        "import ", "from ", "def ", "class ",
+        "for ", "while ", "if ", "elif ", "else:",
+        "try:", "except", "with ",
+        "return ", "print("
+    )
+
+    return t.startswith(python_starts)
 
 
 # ========== Code Mode Handler ==========
@@ -76,7 +47,7 @@ def handle_code_mode(
     ai_service,
     executor,
     context_manager,
-    max_attempts: int = 2  # ← Add parameter
+    max_attempts: int = 2
 ):
     """
     Handle SQL/Python code generation and execution with retry on error.
@@ -129,7 +100,7 @@ def handle_code_mode(
             
             # Handle result
             if error:
-                display_error(error, code, mode)
+                st.error(error)
                 context_manager.add_error(code, error, mode)
                 state.display_messages.append({
                     "role": "assistant",
@@ -211,7 +182,7 @@ def handle_code_mode(
                     else:
                         # Max attempts reached
                         st.error(f"❌ Failed after {max_attempts} attempts")
-                        display_error(error, code, mode)
+                        st.error(error)
                         context_manager.add_error(code, error, mode)
                         
                         state.display_messages.append({
@@ -418,19 +389,7 @@ def display_python_result(result: dict, code: str, metadata: GenerationMetadata)
     # If no output, show success message
     if not has_output:
         st.success("✅ Code executed successfully (no output)")
-
-
-def display_error(error: str, code: str, mode: str):
-    """
-    Display execution error.
-    
-    Args:
-        error: Error message
-        code: Code that failed
-        mode: "sql" or "python"
-    """
-    st.error(f"❌ Execution Error")
-    st.code(error, language="text")
+        
 
 def handle_code_rerun(state, executor, context_manager):
     """

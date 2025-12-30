@@ -2,9 +2,8 @@
 Chat interface components for displaying messages and handling input
 """
 import streamlit as st
-import pandas as pd
-from core.ai_manager import GenerationMetadata
-from core.query_library import QueryLibrary
+from config import get_active_metadata
+from utils.helper import handle_natural_language, handle_code_mode
 
 
 def render_chat_history(state):
@@ -331,3 +330,59 @@ def render_save_dialog_inline(code: str, mode: str, state):
             if st.form_submit_button("❌ Cancel", use_container_width=True):
                 st.session_state.show_save_dialog_current = False
                 st.rerun()
+
+def render_input_area(state, ai_service, executor, context_manager):
+    """
+    Render chat input area with compact mode selector.
+    
+    Args:
+        state: AppState instance
+        ai_service: AIService instance
+        executor: CodeExecutor instance
+        context_manager: ContextManager instance
+    """
+    # Create columns for input and mode selector
+    col_input, col_mode = st.columns([4, 1])
+    
+    with col_mode:
+        # Compact mode selector
+        current_mode = render_compact_mode_selector(state)
+    
+    with col_input:
+        # Dynamic placeholder based on mode
+        placeholders = {
+            "natural": "Ask a question about your data...",
+            "sql": "Write SQL or ask in natural language...",
+            "python": "Write Python code or ask in natural language..."
+        }
+        
+        placeholder = placeholders.get(state.current_mode, "Ask a question...")
+        
+        # Chat input
+        user_input = st.chat_input(placeholder)
+    
+    # Handle input
+    if user_input:
+        if state.current_mode == "natural":
+
+            from core.prompts import build_natural_language_prompt
+            meta = get_active_metadata()
+            system_prompt = build_natural_language_prompt(meta)
+            
+            handle_natural_language(
+                user_input,
+                state,
+                ai_service,
+                context_manager,
+                system_prompt
+            )
+        else:
+            # SQL or Python mode
+            handle_code_mode(
+                state.current_mode,
+                user_input,
+                state,
+                ai_service,
+                executor,
+                context_manager
+            )
